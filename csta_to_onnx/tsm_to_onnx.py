@@ -127,11 +127,28 @@ def convert_onnx_type_to_value(onnx_type):
 def topo_sort(nodes_info, input_index_list, output_index_list, const_node_list):
     topo_order_list = []
     input_list = copy.deepcopy(input_index_list)
+    traversal_node_set = set()
+    traversal_node_set.update(const_node_list)
+    traversal_node_set.update(output_index_list)
     while len(input_list) > 0:
         input_index = input_list[0]
+        if input_index not in traversal_node_set:
+            traversal_node_set.add(input_index)
+        else:
+            del input_list[0]
+            continue
         del input_list[0]
         out_list = nodes_info[input_index]['output_index']
-        input_list.extend(out_list)
+
+        for item in out_list:
+            temp_input_list = nodes_info[item]['input_index']
+            flag = True
+            for temp_item in temp_input_list:
+                if temp_item not in traversal_node_set:
+                    flag = False
+            if flag == True:
+                input_list.append(item)
+        # input_list.extend(out_list)
         if input_index not in input_index_list and input_index not in output_index_list\
             and input_index not in const_node_list and input_index not in topo_order_list:
             
@@ -279,7 +296,7 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
         node['shape_dims'] = len(perm)
     elif onnx_op_name == "Softmax":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
-    elif onnx_op_name == "Conv":
+    elif onnx_op_name == "Conv" or onnx_op_name == "DepthWiseConv":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Gather":
         node['shape_dims'] = tsm_nodes_info[node_input_list[1]]['bubble_info']['shape_dims'] + tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims'] - 1
@@ -293,6 +310,10 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Sub":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
+    elif onnx_op_name == "Mul":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
+    elif onnx_op_name == "Sigmoid":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Relu":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Shape":
@@ -300,6 +321,8 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
         node['shape_dims_value'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Gemm":
         node['shape_dims'] = 2
+    elif onnx_op_name == "Clip":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Add":
         assert len(node_input_list) == 2
         first_input_dims = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
@@ -341,9 +364,14 @@ def construct_output_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, o
     node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)    
     assert len(node_output_list) == 0
     init_tensor_name = node['name']
-    assert 'shape_dims' in node.keys()
+    # assert 'shape_dims' in node.keys()
     if 'value' not in node.keys():
-        init_tensor_shape = [-1 for i in range(node['shape_dims'])]
+        # init_tensor_shape = [-1 for i in range(node['shape_dims'])]        
+        if 'shape_dims' in node.keys():
+            init_tensor_shape = [-1 for i in range(node['shape_dims'])]
+        else:
+            input_node = tsm_nodes_info[node_input_list[0]]['bubble_info']
+            init_tensor_shape = [-1 for i in range(input_node['shape_dims'])]
         init_tensor_type = TensorProto.FLOAT
     else:
         init_tensor_type = conver_numpy_type_to_onnx_type(node['value'])
@@ -463,7 +491,7 @@ def compute_tf_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
     onnx_input_list = onnx_nodes_info['input']
     onnx_output_list = [output_tensor, ]
     onnx_node_list = onnx_nodes_info['node']
-    onnx_graph_def = helper.make_graph(onnx_node_list, 'pooling_pad_graph', onnx_input_list, onnx_output_list, initializer=onnx_initializer_list)
+    onnx_graph_def = helper.make_graph(onnx_node_list, 'tf_conv2d_pad_graph', onnx_input_list, onnx_output_list, initializer=onnx_initializer_list)
     op = onnx.OperatorSetIdProto()
     op.version = 11
     onnx_mode_def = helper.make_model(onnx_graph_def, producer_name='csta_parser', opset_imports=[op])
@@ -478,7 +506,7 @@ def compute_tf_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
     input_feed = {}
     for item in input_names:
         # input_feed[item] = np.zeros((1,3,480,640)).astype(np.float32)
-        input_feed[item] = np.zeros(init_tensor_shape).astype(np.float32)
+        input_feed[item] = np.zeros(net_input_shape).astype(np.float32)
     
     pred_result = onnx_session.run([], input_feed=input_feed)
     input_size = pred_result[0].shape[2:]
@@ -501,8 +529,8 @@ def compute_tf_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
         expect_input_size[0]  = (expect_output_size[0] - 1) * stride[0] + (dilation[0] * (ksize[0] - 1) + 1) - static_padding[0] - static_padding[1]
         expect_input_size[1]  = (expect_output_size[1] - 1) * stride[1] + (dilation[1] * (ksize[1] - 1) + 1) - static_padding[2] - static_padding[3]
         dynamic_padding[0]    = static_padding[0]
-        dynamic_padding[1]    = static_padding[1] + expect_input_size[0] - input_size[0]
-        dynamic_padding[2]    = static_padding[2]
+        dynamic_padding[2]    = static_padding[1] + expect_input_size[0] - input_size[0]
+        dynamic_padding[1]    = static_padding[2]
         dynamic_padding[3]    = static_padding[3] + expect_input_size[1] - input_size[1]
     else:
         this_kernel_height    = (ksize[0] - 1) * dilation[0] + 1
@@ -513,12 +541,13 @@ def compute_tf_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
         expect_input_size[1]  = (expect_output_size[1] - 1) * stride[1] + (dilation[1] * (ksize[1] - 1) + 1) - static_padding[2] - static_padding[3]
         padding_height        = (expect_input_size[0] - input_size[0])
         padding_width         = (expect_input_size[1] - input_size[1])
-        half_padding_height   = padding_height / 2
-        half_padding_width    = padding_width / 2
+        half_padding_height   = int(padding_height / 2)
+        half_padding_width    = int(padding_width / 2)
         dynamic_padding[0]    = static_padding[0] + half_padding_height
-        dynamic_padding[1]    = static_padding[1] + (padding_height - half_padding_height)
-        dynamic_padding[2]    = static_padding[2] + half_padding_width
+        dynamic_padding[2]    = static_padding[1] + (padding_height - half_padding_height)
+        dynamic_padding[1]    = static_padding[2] + half_padding_width
         dynamic_padding[3]    = static_padding[3] + (padding_width - half_padding_width)
+    print(input_size, dynamic_padding)
     return dynamic_padding
 
 
@@ -804,7 +833,9 @@ def construct_clip_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onn
     construct_const_op('<const>', 'Const', tsm_nodes_info, max_index, onnx_nodes_info, log_flag)
 
     node_input_list.append(min_index)
+    input_names.append(tsm_nodes_info[min_index]['bubble_info']['name'])
     node_input_list.append(max_index)
+    input_names.append(tsm_nodes_info[max_index]['bubble_info']['name'])
 
     if log_flag:
         print("construct clip with:")
@@ -828,13 +859,20 @@ def construct_conv2d_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, o
     dilations = node['dilation'].tolist()[2:]
     assert 'stride' in node.keys()
     strides = node['stride'].tolist()[2:]
-    # assert 'padding' in node.keys()
-    if 'padding' in node.keys():
+    
+    if 'conv2d' == tsm_op_name:
+        assert 'padding' in node.keys()
         pads = node['padding'].copy()[2:,:].transpose((1,0)).reshape((1,-1))[0].tolist()
-    elif 'pads' in node.keys():
-        pads = node['pads'].tolist()
+    elif 'conv2d_v2' == tsm_op_name:
+        assert 'pads' in node.keys()
+        assert len(node_input_list) >= 3
+        del input_names[1]
+        # input_names = []
+        # input_names.append(tsm_nodes_info[node_input_list[0]]['bubble_info']['name'])
+        # input_names.append(tsm_nodes_info[node_input_list[2]]['bubble_info']['name'])
+        pads = node['pads']
     else:
-        assert True
+        assert False
     if log_flag:
         print("construct conv2d with:")
         print("strides: {}".format(strides))
@@ -865,17 +903,29 @@ def construct_depthwise_conv2d_op(tsm_op_name, onnx_op_name, tsm_nodes_info, nod
     dilations = node['dilation'].tolist()[2:]
     assert 'stride' in node.keys()
     strides = node['stride'].tolist()[2:]
-    assert 'padding' in node.keys()
-    pads = node['padding'].copy()[2:,:].transpose((1,0)).reshape((1,-1))[0].tolist()
+    if 'depthwise_conv2d' == tsm_op_name:
+        assert 'padding' in node.keys()
+        pads = node['padding'].copy()[2:,:].transpose((1,0)).reshape((1,-1))[0].tolist()
+        weight_node = tsm_nodes_info[node_input_list[1]]['bubble_info']
+        group = weight_node['value'].shape[0]
+    elif 'depthwise_conv2d_v2' == tsm_op_name:
+        assert 'pads' in node.keys()
+        assert len(node_input_list) >= 3
+        del input_names[1]
+        # input_names = []
+        # input_names.append(tsm_nodes_info[node_input_list[0]]['bubble_info']['name'])
+        # input_names.append(tsm_nodes_info[node_input_list[2]]['bubble_info']['name'])
+        pads = node['pads']
+        weight_node = tsm_nodes_info[node_input_list[2]]['bubble_info']
+        group = weight_node['value'].shape[0]
+    else:
+        assert False    
     if log_flag:
         print("construct conv2d with:")
         print("strides: {}".format(strides))
         print("dilations: {}".format(dilations))
         print("pads: {}".format(pads))
     
-    weight_node = tsm_nodes_info[node_input_list[1]]['bubble_info']
-    # weight_node['value'] = weight_node['value'].transpose((1, 0, 2, 3))
-    group = weight_node['value'].shape[0]
     infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index)
     node_def = onnx.helper.make_node(
         onnx_op_name,
@@ -1029,8 +1079,8 @@ def get_current_graph_output(tsm_nodes_info, node_index, onnx_nodes_info):
         input_names.append(onnx_node.name)
     input_feed = {}
     for item in input_names:
-        # input_feed[item] = np.zeros((1, 1, 112, 112)).astype(np.float32)
-        input_feed[item] = np.zeros(init_tensor_shape).astype(np.float32)
+        input_feed[item] = np.zeros(net_input_shape).astype(np.float32)
+        # input_feed[item] = np.zeros(init_tensor_shape).astype(np.float32)
     
     pred_result = onnx_session.run([], input_feed=input_feed)
     return pred_result
@@ -1044,7 +1094,7 @@ def add_const_node_to_tsm(tsm_nodes_info, out_index, nump_arr, log_flag = False)
     new_node_info['bubble_info'] = {}
     new_node_info['input_index'] = []
     new_node_info['output_index'] = []
-    new_node_info['output_index'].extend(out_index)
+    new_node_info['output_index'].append(out_index)
     
     new_node_info['bubble_info']['name'] = tsm_op_name
     new_node_info['bubble_info']['op'] = onnx_op_name
@@ -1158,6 +1208,8 @@ def init_onnx_construct_obj():
     # onnx_obj.register('shape_index_patch', 'ShapeIndexPatch', construct_sip_op) # specical case, next node must be inner_prod
     onnx_obj.register('add', 'Add', construct_i2o1_op)
     onnx_obj.register('sub', 'Sub', construct_i2o1_op)
+    onnx_obj.register('mul', 'Mul', construct_i2o1_op)
+    onnx_obj.register('sigmoid', 'Sigmoid', construct_i1o1_op)
     onnx_obj.register('relu', 'Relu', construct_i1o1_op)
     onnx_obj.register('_shape', 'Shape', construct_i1o1_op)
     onnx_obj.register('<const>', 'Const', construct_const_op)
@@ -1171,7 +1223,8 @@ def merge_conv_ip_addbias_op(tsm_nodes_info, log_verbose):
         node_info = tsm_nodes_info[index]
         op_name = node_info['bubble_info']['op']
         node_name = node_info['bubble_info']['name']
-        if op_name == 'conv2d' or op_name == 'inner_prod' or op_name == "depthwise_conv2d":
+        if op_name == 'conv2d' or op_name == 'inner_prod' or op_name == "depthwise_conv2d" or \
+            op_name == 'conv2d_v2' or op_name == 'depthwise_conv2d_v2':
             node_input_list = node_info['input_index']
             node_output_list = node_info['output_index']
             for out_index in node_output_list:
@@ -1205,6 +1258,10 @@ def merge_conv_ip_addbias_op(tsm_nodes_info, log_verbose):
             if op_name == "depthwise_conv2d":
                 node_input_list = node_info['input_index']
                 weight_node = tsm_nodes_info[node_input_list[1]]['bubble_info']
+                weight_node['value'] = weight_node['value'].transpose((1, 0, 2, 3))
+            if op_name == "depthwise_conv2d_v2":
+                node_input_list = node_info['input_index']
+                weight_node = tsm_nodes_info[node_input_list[2]]['bubble_info']
                 weight_node['value'] = weight_node['value'].transpose((1, 0, 2, 3))
 
 
@@ -1291,7 +1348,6 @@ def remove_unspported_ops(tsm_nodes_info, log_verbose):
             node_input_list = node_info['input_index']
             assert len(node_input_list) == 1
             node_output_list = node_info['output_index']
-
             pre_node_info = tsm_nodes_info[node_input_list[0]]
             # remove current from pre node output
             pre_node_info['output_index'].remove(index)

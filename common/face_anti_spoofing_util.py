@@ -2,6 +2,25 @@
 import cv2
 import math
 import numpy as np
+from common.face_anti_spoofing_anchors import fas_anchors
+
+
+def decode_box(anchor, box_encoding):
+    anchor = [anchor[1], anchor[0], anchor[3], anchor[2]]
+    box_encoding = [box_encoding[1], box_encoding[0], box_encoding[3], box_encoding[2]]
+    width = anchor[2] - anchor[0]
+    height = anchor[3] - anchor[1]
+    ctr_x = anchor[0] + 0.5 * width
+    ctr_y = anchor[1] + 0.5 * height
+
+    pred_ctr_x = box_encoding[0] * 0.1 * width + ctr_x
+    pred_ctr_y = box_encoding[1] * 0.1 * height + ctr_y
+    pred_w = math.exp(box_encoding[2] * 0.2) * width
+    pred_h = math.exp(box_encoding[3] * 0.2) * height
+
+    region = [pred_ctr_x - 0.5 * pred_w, pred_ctr_y - 0.5 * pred_h, pred_ctr_x + 0.5 * pred_w, pred_ctr_y + 0.5 * pred_h]
+    return region
+
 
 def re_blur(gray_data):
     height = gray_data.shape[0]
@@ -39,15 +58,19 @@ def re_blur(gray_data):
     s_Vver = 0.0
     s_VHor = 0.0
     for i in range(height):
+        if i == 0:
+            continue
         for j in range(width):
-            D_Fver = abs( gray_data[i, j] - gray_data[(i - 1), j])
+            if j == 0:
+                continue
+            D_Fver = float(abs(gray_data[i, j] - gray_data[(i - 1), j]))
             s_FVer += D_Fver
-            D_BVer = abs(BVer[i, j] - BVer[(i - 1), j])
+            D_BVer = float(abs(BVer[i, j] - BVer[(i - 1), j]))
             s_Vver += max(0.0, D_Fver - D_BVer)
 
-            D_FHor = abs(gray_data[i, j] - gray_data[i, (j - 1)])
+            D_FHor = float(abs(gray_data[i, j] - gray_data[i, (j - 1)]))
             s_FHor += D_FHor
-            D_BHor = abs(BHor[i, j] - BHor[i, (j - 1)])
+            D_BHor = float(abs(BHor[i, j] - BHor[i, (j - 1)]))
             s_VHor += max(0.0, D_FHor - D_BHor)
 
     b_FVer = (s_FVer - s_Vver) / s_FVer
@@ -60,7 +83,7 @@ def re_blur(gray_data):
 def clarity_estimate(face):
     if face.shape[0] < 9 or face.shape[1] < 9:
         return 0.0
-    gray_data = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+    gray_data = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY).astype(np.float32)
     blur_val = re_blur(gray_data)
     clarity = 1.0 - blur_val
 
@@ -89,9 +112,10 @@ def fix_pos(rect, height, width):
     return fixed
 
 def argmax(arr):
-    size = arr.shape[0]
+    size = len(arr.tolist())
     if size == 0:
         return 0
+    arr_list = arr.reshape((1, -1)).tolist()
     flag = arr[0]
     max = 0
     for  i in range(size):
@@ -105,24 +129,22 @@ def box_detect_postprocess(image, box_encodings, class_predictions):
     size = box_encodings.shape[1]
     result = []
     for i in range(size):
-        label = argmax(class_predictions[:, i][1:]) + 1
-        # score = class_predictions(i * class_predictions.size( 2 ) * class_predictions.size( 3 ) + int( label ) * class_predictions.size( 3 ))
-        score = class_predictions[:, i, int(label), 0]
-        
+        label = argmax(class_predictions[0, i, 1:]) + 1
+        score = class_predictions[0, i, int(label), 0]
         if score < 0.8:
             continue
 
         box_encoding = [0 for j in range(4)]
-        box_encoding[0] = box_encodings( i * box_encodings.size( 2 ) * box_encodings.size( 3 ) + 0 )
-        box_encoding[1] = box_encodings( i * box_encodings.size( 2 ) * box_encodings.size( 3 ) + 1 )
-        box_encoding[2] = box_encodings( i * box_encodings.size( 2 ) * box_encodings.size( 3 ) + 2 )
-        box_encoding[3] = box_encodings( i * box_encodings.size( 2 ) * box_encodings.size( 3 ) + 3 )
+        box_encoding[0] = box_encodings[0,i,0,0]
+        box_encoding[1] = box_encodings[0,i,0,1]
+        box_encoding[2] = box_encodings[0,i,0,2]
+        box_encoding[3] = box_encodings[0,i,0,3]
 
         anchor = [0 for j in range(4)]
-        anchor[0] = seeta::box_detection::anchors[i][0]
-        anchor[1] = seeta::box_detection::anchors[i][1]
-        anchor[2] = seeta::box_detection::anchors[i][2]
-        anchor[3] = seeta::box_detection::anchors[i][3]
+        anchor[0] = fas_anchors[4 * i + 0]
+        anchor[1] = fas_anchors[4 * i + 1]
+        anchor[2] = fas_anchors[4 * i + 2]
+        anchor[3] = fas_anchors[4 * i + 3]
         region = decode_box(anchor, box_encoding)
 
         x = region[0]
@@ -142,5 +164,5 @@ def box_detect_postprocess(image, box_encodings, class_predictions):
         box['pos'].append(int(height * height))
         box['pos'] = fix_pos(box['pos'], height, width)
         result.append(box)
-
     return result
+
