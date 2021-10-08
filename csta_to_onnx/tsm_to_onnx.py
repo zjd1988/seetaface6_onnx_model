@@ -14,7 +14,7 @@ net_input_shape = [-1, -1, -1, -1]
 def get_initializer(nodes_info, initializer_list, initializer_name_dict):
     for i in range(len(nodes_info)):
         node = nodes_info[i]['bubble_info']
-        if node['op'] == '<const>':
+        if node['op'] == '<const>' and len(nodes_info[i]['output_index']) > 0:
             # print(i, node['name'])
             # replace int32 to int64
             if node['value'].dtype == np.int32:
@@ -306,6 +306,8 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
     #     node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims'] + 1
     elif onnx_op_name == "Unsqueeze":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims'] + 1
+    elif onnx_op_name == "BatchNormalization":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Cast":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Sub":
@@ -824,7 +826,7 @@ def construct_clip_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onn
     assert len(node_input_list) == 1
     assert 'max' in node.keys()
     
-    min_value = np.float32(0.0)    
+    min_value = np.float32(0.0)
     min_index = add_const_node_to_tsm(tsm_nodes_info, node_index, min_value, log_flag)
     construct_const_op('<const>', 'Const', tsm_nodes_info, min_index, onnx_nodes_info, log_flag)
 
@@ -987,6 +989,45 @@ def construct_unsqueeze_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index
     onnx_nodes_info['node'].append(node_def)
     return True
 
+
+def construct_batchnormalization_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
+    node_info = tsm_nodes_info[node_index]
+    node = node_info['bubble_info']
+    node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
+    assert len(node_input_list) == 5 or len(node_input_list) == 3
+    assert 'dim' in node.keys()
+    dim = node['dim'].tolist()[0]
+    assert dim == 1
+    assert 'epsilon' in node.keys()
+    epsilon = node['epsilon'].tolist()[0]
+
+    if log_flag:
+        print("construct batchnormalization with:")
+        print("epsilon: {}".format(epsilon))
+    if len(node_input_list) == 3:
+        mean_node_info = tsm_nodes_info[node_input_list[1]]
+        mean_node = mean_node_info['bubble_info']
+        scale_value = np.ones(mean_node['value'].shape).astype(np.float32)
+        scale_index = add_const_node_to_tsm(tsm_nodes_info, node_index, scale_value, log_flag)
+        construct_const_op('<const>', 'Const', tsm_nodes_info, scale_index, onnx_nodes_info, log_flag)
+        node_input_list.insert(1, scale_index)
+
+        bias_value = np.zeros(mean_node['value'].shape).astype(np.float32)
+        bias_index = add_const_node_to_tsm(tsm_nodes_info, node_index, bias_value, log_flag)
+        construct_const_op('<const>', 'Const', tsm_nodes_info, bias_index, onnx_nodes_info, log_flag)
+        node_input_list.insert(2, bias_index)
+
+        node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
+
+    infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index)
+    node_def = helper.make_node(
+        onnx_op_name,
+        inputs=input_names,
+        outputs=output_names,
+        epsilon = epsilon,
+    )
+    onnx_nodes_info['node'].append(node_def)
+    return True
 
 
 def construct_cast_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
@@ -1205,6 +1246,7 @@ def init_onnx_construct_obj():
     onnx_obj.register('to_float', 'Cast', construct_cast_op)
     onnx_obj.register('_cast', 'Cast', construct_cast_op)
     onnx_obj.register('inner_prod', 'Gemm', construct_gemm_op)
+    onnx_obj.register('batch_norm', 'BatchNormalization', construct_batchnormalization_op)
     # onnx_obj.register('shape_index_patch', 'ShapeIndexPatch', construct_sip_op) # specical case, next node must be inner_prod
     onnx_obj.register('add', 'Add', construct_i2o1_op)
     onnx_obj.register('sub', 'Sub', construct_i2o1_op)
@@ -1265,9 +1307,47 @@ def merge_conv_ip_addbias_op(tsm_nodes_info, log_verbose):
                 weight_node['value'] = weight_node['value'].transpose((1, 0, 2, 3))
 
 
+def merge_batch_norm_batch_scale_op(tsm_nodes_info, log_verbose):
+    for index in range(len(tsm_nodes_info)):
+        node_info = tsm_nodes_info[index]
+        op_name = node_info['bubble_info']['op']
+        node_name = node_info['bubble_info']['name']
+        if op_name == 'batch_norm':
+            node_input_list = node_info['input_index']
+            node_output_list = node_info['output_index']
+            for out_index in node_output_list:
+                next_node_info = tsm_nodes_info[out_index]
+                next_node_input_list = next_node_info['input_index']
+                next_node_output_list = next_node_info['output_index']
+                next_op_name = next_node_info['bubble_info']['op']
+                next_node_name = next_node_info['bubble_info']['name']
+                if next_op_name == "batch_scale":
+                    assert len(next_node_input_list) == 3
+                    next_node_info['old_input_index'] = copy.deepcopy(next_node_input_list)
+                    next_node_info['old_output_index'] = copy.deepcopy(next_node_output_list)
+                    # replace next next node input 
+                    for item in next_node_output_list:
+                        next_next_node_info = tsm_nodes_info[item]
+                        next_next_input_list = next_next_node_info['input_index']
+                        for next_next_index in range(len(next_next_input_list)):
+                            if next_next_input_list[next_next_index] == out_index:
+                                next_next_input_list[next_next_index] = index
+                    # add conv node input with scale and bias
+                    node_input_list.insert(1, next_node_input_list[1])
+                    node_input_list.insert(2, next_node_input_list[2])
+                    # remove batch scale from batch norm out
+                    node_output_list.remove(out_index)
+                    # add bias out to conv out
+                    node_output_list.extend(copy.deepcopy(next_node_output_list))
+                    next_node_info['input_index'] = []
+                    next_node_info['output_index'] = []
+                    if log_verbose:
+                        print("merge {}:{} {}:{} and {}:{}".format(index, out_index, node_name, op_name, next_node_name, next_op_name))
+                    break
+
 def merge_ops(tsm_nodes_info, log_verbose):
     merge_conv_ip_addbias_op(tsm_nodes_info, log_verbose)
-
+    merge_batch_norm_batch_scale_op(tsm_nodes_info, log_verbose)
 
 def replace_stack_op(tsm_nodes_info, log_verbose):
     node_count = len(tsm_nodes_info)
@@ -1344,9 +1424,10 @@ def remove_unspported_ops(tsm_nodes_info, log_verbose):
         node_info = tsm_nodes_info[index]
         op_name = node_info['bubble_info']['op']
         node_name = node_info['bubble_info']['name']
-        if op_name == '_limit' or op_name == '_copy' or op_name == '_dimshuffle':
+        if op_name == '_limit' or op_name == '_copy' or op_name == '_dimshuffle' or \
+            op_name == '_resize2d' or op_name == 'crop_nd':
             node_input_list = node_info['input_index']
-            assert len(node_input_list) == 1
+            assert len(node_input_list) >= 1
             node_output_list = node_info['output_index']
             pre_node_info = tsm_nodes_info[node_input_list[0]]
             # remove current from pre node output
@@ -1371,6 +1452,10 @@ def remove_unspported_ops(tsm_nodes_info, log_verbose):
             node_info['input_index'] = []
             node_info['output_index'] = []
             remove_flag = True
+            if len(node_input_list) == 2:
+                pre_node_info = tsm_nodes_info[node_input_list[1]]
+                pre_node_info['output_index'].remove(index)
+
         if remove_flag and log_verbose:
             print("remove node {}: {}".format(index, node_name))
 

@@ -35,24 +35,51 @@ def conver_csta_model_to_onnx(csta_model_file, onnx_model_file, input_shape):
 
 
 if __name__ == "__main__":
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/face_detector.csta"
+    # csta_file_path = "./origin_models/face_detector.csta"
     # onnx_file_path = "./face_detector.onnx"
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/face_landmarker_pts5.csta"
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/face_recognizer_light.csta"
+    # csta_file_path = "./origin_models/face_landmarker_pts5.csta"
+    # csta_file_path = "./origin_models/face_recognizer_light.csta"
     # onnx_file_path = "./face_recognizer_light.onnx"
     # face_recognizer_light_input_shape = [1, 3, 112, 112]
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/face_recognizer.csta"
+    # csta_file_path = "./origin_models/face_recognizer.csta"
     # onnx_file_path = "./face_recognizer.onnx"
     # face_recognizer_input_shape = [1, 3, 256, 256]
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/fas_first.csta"
+    # csta_file_path = "./origin_models/fas_first.csta"
     # onnx_file_path = "./fas_first.onnx"
     # fas_first_input_shape = [1, 3, 224, 224]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, fas_first_input_shape)
-    # csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/fas_second.csta"
+    
+    # csta_file_path = "./origin_models/fas_second.csta"
     # onnx_file_path = "./fas_second.onnx"
     # fas_second_input_shape = [1, 3, 300, 300]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, fas_second_input_shape)
-    csta_file_path = "E:/github_codes/seetaface_model_parse/seetaface6_models/sf3.0_models/quality_lbn.csta"
-    onnx_file_path = "./quality_lbn.onnx"
-    quality_lbn_input_shape = [1, 3, 300, 300]
-    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, quality_lbn_input_shape)
+    
+    # csta_file_path = "./origin_models/quality_lbn.csta"
+    # onnx_file_path = "./models/quality_lbn.onnx"
+    # quality_lbn_input_shape = [1, 3, 227, 227]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, quality_lbn_input_shape)
+
+    # csta_file_path = "./origin_models/mask_detector.csta"
+    # onnx_file_path = "./models/mask_detector.onnx"
+    # mask_detector_input_shape = [1, 3, 112, 112]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, mask_detector_input_shape)
+
+    # csta_file_path = "./origin_models/gender_predictor.csta"
+    # onnx_file_path = "./models/gender_predictor.onnx"
+    # gender_predictor_input_shape = [1, 3, 112, 112]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, gender_predictor_input_shape)
+
+    csta_file_path = "./origin_models/pose_estimation.csta"
+    onnx_file_path = "./models/pose_estimation.onnx"
+    pose_estimation_input_shape = [1, 3, 80, 80]
+    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, pose_estimation_input_shape)
+
+    # csta_file_path = "./origin_models/eye_state.csta"
+    # onnx_file_path = "./models/eye_state.onnx"
+    # eye_state_input_shape = [1, 90, 90, 3]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, eye_state_input_shape)
+
+    # csta_file_path = "./origin_models/age_predictor.csta"
+    # onnx_file_path = "./models/age_predictor.onnx"
+    # age_predictor_input_shape = [1, 3, 248, 248]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, age_predictor_input_shape)
