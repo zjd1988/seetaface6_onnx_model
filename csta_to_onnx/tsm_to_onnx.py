@@ -262,6 +262,8 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
     node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)    
     if onnx_op_name == "Pooling":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
+    elif onnx_op_name == "Pooling_v2":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']        
     elif onnx_op_name == "Concat":
         if tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims'] == 1:
             node['shape_dims'] = 0
@@ -318,10 +320,12 @@ def infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index):
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Relu":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
+    elif onnx_op_name == "Abs":
+        node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
     elif onnx_op_name == "Shape":
         node['shape_dims'] = 1
         node['shape_dims_value'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
-    elif onnx_op_name == "Gemm":
+    elif onnx_op_name == "Gemm" or onnx_op_name == "InnerProd":
         node['shape_dims'] = 2
     elif onnx_op_name == "Clip":
         node['shape_dims'] = tsm_nodes_info[node_input_list[0]]['bubble_info']['shape_dims']
@@ -419,8 +423,8 @@ def compute_onnx_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
     node = node_info['bubble_info']
     node_input_list = node_info['input_index']
     init_tensor_name = tsm_nodes_info[node_input_list[0]]['bubble_info']['name']
-    init_tensor_shape = [-1, -1, -1, -1]
-    # init_tensor_shape = net_input_shape
+    # init_tensor_shape = [-1, -1, -1, -1]
+    init_tensor_shape = net_input_shape
     init_tensor_type = TensorProto.FLOAT
     output_tensor = helper.make_tensor_value_info(init_tensor_name, init_tensor_type, init_tensor_shape)
     onnx_initializer_list = onnx_nodes_info['initializer']
@@ -461,7 +465,60 @@ def compute_onnx_pad_value(tsm_nodes_info, node_index, onnx_nodes_info):
     return dynamic_padding
 
 
-def construct_pooling_pad_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
+def compute_mx_pad_value(tsm_nodes_info, node_index, onnx_nodes_info, valid):
+    global net_input_shape
+    node_info = tsm_nodes_info[node_index]
+    node = node_info['bubble_info']
+    node_input_list = node_info['input_index']
+    init_tensor_name = tsm_nodes_info[node_input_list[0]]['bubble_info']['name']
+    # init_tensor_shape = [-1, -1, -1, -1]
+    init_tensor_shape = net_input_shape
+    init_tensor_type = TensorProto.FLOAT
+    output_tensor = helper.make_tensor_value_info(init_tensor_name, init_tensor_type, init_tensor_shape)
+    onnx_initializer_list = onnx_nodes_info['initializer']
+    onnx_input_list = onnx_nodes_info['input']
+    onnx_output_list = [output_tensor, ]
+    onnx_node_list = onnx_nodes_info['node']
+    onnx_graph_def = helper.make_graph(onnx_node_list, 'pooling_pad_graph', onnx_input_list, onnx_output_list, initializer=onnx_initializer_list)
+    op = onnx.OperatorSetIdProto()
+    op.version = 11
+    onnx_mode_def = helper.make_model(onnx_graph_def, producer_name='csta_parser', opset_imports=[op])
+    onnx_mode_def.ir_version = 6
+    onnx.checker.check_model(onnx_mode_def)
+    onnx_file_name = "./temp.onnx"
+    onnx.save(onnx_mode_def, onnx_file_name)
+    onnx_session = onnxruntime.InferenceSession(onnx_file_name)
+    input_names = []
+    for onnx_node in onnx_session.get_inputs():
+        input_names.append(onnx_node.name)
+    input_feed = {}
+    for item in input_names:
+        # input_feed[item] = np.zeros((1,3,480,640)).astype(np.float32)
+        input_feed[item] = np.zeros(init_tensor_shape).astype(np.float32)
+    
+    pred_result = onnx_session.run([], input_feed=input_feed)
+    input_size = pred_result[0].shape[2:]
+    ksize = tsm_nodes_info[node_input_list[1]]['bubble_info']['value'].tolist()[2:]
+    stride = tsm_nodes_info[node_input_list[2]]['bubble_info']['value'].tolist()[2:]
+    if 'padding' in node.keys():
+        static_padding = node['padding'][2:,:].transpose((1,0)).reshape((1,-1))[0].tolist()
+    else:
+        static_padding = [0, 0, 0, 0]
+    dynamic_padding = [0 for i in range(4)]
+    if valid == 1:
+        dynamic_padding[0] = static_padding[0]
+        dynamic_padding[1] = static_padding[1]
+        dynamic_padding[2] = static_padding[2] - (input_size[0] + static_padding[0] + static_padding[2] - ksize[0]) % stride[0]
+        dynamic_padding[3] = static_padding[3] - (input_size[1] + static_padding[1] + static_padding[3] - ksize[1]) % stride[1]
+    else:
+        dynamic_padding[0] = static_padding[0]
+        dynamic_padding[1] = static_padding[1]
+        dynamic_padding[2] = static_padding[2]
+        dynamic_padding[3] = static_padding[3]
+    # print("run here")
+    return dynamic_padding
+
+def construct_onnx_pooling_pad_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
     node_info = tsm_nodes_info[node_index]
     node = node_info['bubble_info']
     node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
@@ -476,6 +533,26 @@ def construct_pooling_pad_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_ind
         print("out_index: {}".format(out_index))
     tsm_nodes_info[out_index]['bubble_info']['auto_pad'] = auto_pad
     tsm_nodes_info[out_index]['bubble_info']['pads'] = compute_onnx_pad_value(tsm_nodes_info, node_index, onnx_nodes_info)
+    return True
+
+
+def construct_mx_pooling_pad_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
+    node_info = tsm_nodes_info[node_index]
+    node = node_info['bubble_info']
+    node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
+    assert len(node_input_list) == 3
+    assert len(node_output_list) == 1
+    assert node['format'] == "NCHW"
+    auto_pad = 'NOTSET'
+    valid = node['valid'].tolist()[0]
+    out_index = node_output_list[0]
+    assert node_index in tsm_nodes_info[out_index]['input_index']
+    if log_flag:
+        print("construct pooling_pad with:")
+        print("valid: {}".format(valid))
+        print("format: {}".format(node['format']))
+    tsm_nodes_info[out_index]['bubble_info']['auto_pad'] = auto_pad
+    tsm_nodes_info[out_index]['bubble_info']['pads'] = compute_mx_pad_value(tsm_nodes_info, node_index, onnx_nodes_info, valid)
     return True
 
 
@@ -1059,13 +1136,13 @@ def construct_cast_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onn
 
 
 
-def construct_gemm_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
+def construct_gemm_op_with_inner_prod(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
     node_info = tsm_nodes_info[node_index]
     node = node_info['bubble_info']
     node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
     assert len(node_input_list) >= 2
     if log_flag:
-        print("construct gemm with:")
+        print("construct inner prod with:")
         if 'transpose' in node.keys():
             print("transpose: {}".format(node['transpose']))
         else:
@@ -1079,6 +1156,45 @@ def construct_gemm_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onn
         transB = int(node['transpose'])
     else:
         transB = 0
+
+    node_def = helper.make_node(
+        "Gemm",
+        inputs=input_names,
+        outputs=output_names,
+        alpha=alpha,
+        beta=beta,
+        transA=transA,
+        transB=transB,
+    )
+    onnx_nodes_info['node'].append(node_def)
+    return True
+
+def construct_gemm_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onnx_nodes_info, log_flag = False):
+    node_info = tsm_nodes_info[node_index]
+    node = node_info['bubble_info']
+    node_input_list, node_output_list, input_names, output_names = get_node_input_output(tsm_nodes_info, node_index)
+    assert len(node_input_list) == 3
+    alpha = 1.0
+    beta = 1.0
+    transA = 0
+    transB = 0
+    if log_flag:
+        print("construct gemm with:")
+        if 'alpha' in node.keys():
+            alpha = node['alpha'].tolist()[0]
+        if 'beta' in node.keys():
+            beta = node['beta'].tolist()[0]
+        if 'transA' in node.keys():
+            transA = int(node['transA'].tolist()[0])
+        if 'transB' in node.keys():
+            transB = int(node['transB'].tolist()[0])
+        print("alpha: {}".format(alpha))
+        print("beta: {}".format(beta))
+        print("transA: {}".format(transA))
+        print("transB: {}".format(transB))
+
+    infer_shape_dims(onnx_op_name, tsm_nodes_info, node_index)
+
     node_def = helper.make_node(
         onnx_op_name,
         inputs=input_names,
@@ -1225,8 +1341,10 @@ def construct_i2o1_op(tsm_op_name, onnx_op_name, tsm_nodes_info, node_index, onn
 
 def init_onnx_construct_obj():
     onnx_obj = ConstructOnnxOp()
-    onnx_obj.register('_onnx_pooling2d_padding', 'Pooling_pad', construct_pooling_pad_op)
-    onnx_obj.register('pooling2d_v2', 'Pooling', construct_pooling_v2_op)
+    onnx_obj.register('_onnx_pooling2d_padding', 'Onnx_Pooling_pad', construct_onnx_pooling_pad_op)
+    onnx_obj.register('_mx_pooling2d_padding', 'Mx_Pooling_pad', construct_mx_pooling_pad_op)
+    
+    onnx_obj.register('pooling2d_v2', 'Pooling_v2', construct_pooling_v2_op)
     onnx_obj.register('pooling2d', 'Pooling', construct_pooling_op)
     onnx_obj.register('concat', 'Concat', construct_concat_op)
     onnx_obj.register('_reshape', 'Reshape', construct_reshape_op)
@@ -1245,7 +1363,8 @@ def init_onnx_construct_obj():
     onnx_obj.register('unsqueeze', 'Unsqueeze', construct_unsqueeze_op)
     onnx_obj.register('to_float', 'Cast', construct_cast_op)
     onnx_obj.register('_cast', 'Cast', construct_cast_op)
-    onnx_obj.register('inner_prod', 'Gemm', construct_gemm_op)
+    onnx_obj.register('inner_prod', 'InnerProd', construct_gemm_op_with_inner_prod)
+    onnx_obj.register('gemm', 'Gemm', construct_gemm_op)
     onnx_obj.register('batch_norm', 'BatchNormalization', construct_batchnormalization_op)
     # onnx_obj.register('shape_index_patch', 'ShapeIndexPatch', construct_sip_op) # specical case, next node must be inner_prod
     onnx_obj.register('add', 'Add', construct_i2o1_op)
@@ -1253,6 +1372,7 @@ def init_onnx_construct_obj():
     onnx_obj.register('mul', 'Mul', construct_i2o1_op)
     onnx_obj.register('sigmoid', 'Sigmoid', construct_i1o1_op)
     onnx_obj.register('relu', 'Relu', construct_i1o1_op)
+    onnx_obj.register('abs', 'Abs', construct_i1o1_op)
     onnx_obj.register('_shape', 'Shape', construct_i1o1_op)
     onnx_obj.register('<const>', 'Const', construct_const_op)
     onnx_obj.register('input', 'Input', construct_input_op)

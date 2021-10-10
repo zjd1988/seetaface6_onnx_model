@@ -69,10 +69,10 @@ if __name__ == "__main__":
     # gender_predictor_input_shape = [1, 3, 112, 112]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, gender_predictor_input_shape)
 
-    csta_file_path = "./origin_models/pose_estimation.csta"
-    onnx_file_path = "./models/pose_estimation.onnx"
-    pose_estimation_input_shape = [1, 3, 80, 80]
-    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, pose_estimation_input_shape)
+    # csta_file_path = "./origin_models/pose_estimation.csta"
+    # onnx_file_path = "./models/pose_estimation.onnx"
+    # pose_estimation_input_shape = [1, 3, 80, 80]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, pose_estimation_input_shape)
 
     # csta_file_path = "./origin_models/eye_state.csta"
     # onnx_file_path = "./models/eye_state.onnx"
@@ -83,3 +83,23 @@ if __name__ == "__main__":
     # onnx_file_path = "./models/age_predictor.onnx"
     # age_predictor_input_shape = [1, 3, 248, 248]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, age_predictor_input_shape)
+
+    # csta_file_path = "./origin_models/face_landmarker_mask_pts5.csta"
+    # onnx_file_path = "./models/face_landmarker_mask_pts5.onnx"
+    # face_landmarker_mask_pts5_input_shape = [1, 3, 128, 128]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_landmarker_mask_pts5_input_shape)
+
+    # csta_file_path = "./origin_models/face_landmarker_pts68.csta"
+    # onnx_file_path = "./models/face_landmarker_pts68.onnx"
+    # face_landmarker_pts68_input_shape = [1, 3, 112, 112]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_landmarker_pts68_input_shape)
+
+    # csta_file_path = "./origin_models/face_recognizer_mask.csta"
+    # onnx_file_path = "./models/face_recognizer_mask.onnx"
+    # face_recognizer_mask_input_shape = [1, 3, 64, 112]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_mask_input_shape)
+
+    csta_file_path = "./origin_models/face_recognizer.csta"
+    onnx_file_path = "./models/face_recognizer.onnx"
+    face_recognizer_input_shape = [1, 3, 248, 248]
+    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_input_shape)
