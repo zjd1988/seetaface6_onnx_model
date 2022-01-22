@@ -22,3 +22,8 @@ convert origin csta model to onnx
 
 # not supported model
 1. face_landmarker_mask_pts68.csta - face_landmarker_mask_pts68.onnx 
+
+# modify model input shape
+use test_scrpts/modify_model_input_shape.py to modify model shape 
+./test_scrpts/modify_model_input_shape.py test.onnx input:1x3x480x480 save.onnx 
+
