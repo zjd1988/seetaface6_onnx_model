@@ -41,6 +41,8 @@ if __name__ == "__main__":
     # csta_file_path = "./origin_models/face_recognizer_light.csta"
     # onnx_file_path = "./face_recognizer_light.onnx"
     # face_recognizer_light_input_shape = [1, 3, 112, 112]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_light_input_shape)
+    
     # csta_file_path = "./origin_models/face_recognizer.csta"
     # onnx_file_path = "./face_recognizer.onnx"
     # face_recognizer_input_shape = [1, 3, 256, 256]
