@@ -81,10 +81,10 @@ if __name__ == "__main__":
     # eye_state_input_shape = [1, 90, 90, 3]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, eye_state_input_shape)
 
-    # csta_file_path = "./origin_models/age_predictor.csta"
-    # onnx_file_path = "./models/age_predictor.onnx"
-    # age_predictor_input_shape = [1, 3, 248, 248]
-    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, age_predictor_input_shape)
+    csta_file_path = "./origin_models/age_predictor.csta"
+    onnx_file_path = "./models/age_predictor.onnx"
+    age_predictor_input_shape = [1, 3, 248, 248]
+    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, age_predictor_input_shape)
 
     # csta_file_path = "./origin_models/face_landmarker_mask_pts5.csta"
     # onnx_file_path = "./models/face_landmarker_mask_pts5.onnx"
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     # face_recognizer_mask_input_shape = [1, 3, 64, 112]
     # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_mask_input_shape)
 
-    csta_file_path = "./origin_models/face_recognizer.csta"
-    onnx_file_path = "./models/face_recognizer.onnx"
-    face_recognizer_input_shape = [1, 3, 248, 248]
-    conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_input_shape)
+    # csta_file_path = "./origin_models/face_recognizer.csta"
+    # onnx_file_path = "./models/face_recognizer.onnx"
+    # face_recognizer_input_shape = [1, 3, 248, 248]
+    # conver_csta_model_to_onnx(csta_file_path, onnx_file_path, face_recognizer_input_shape)
