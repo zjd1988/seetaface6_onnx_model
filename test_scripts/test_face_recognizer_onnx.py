@@ -8,7 +8,7 @@ if __name__ == "__main__":
     onnx_session = onnxruntime.InferenceSession(onnx_file_name)
     input_feed = {}
     img = cv2.imread("./test_new.jpg")
-    resize_img = cv2.resize(img, (248, 248))
+    resize_img = cv2.resize(img, (248, 248))[..., ::-1]
     input_data = resize_img.transpose((2, 0, 1))
     input_feed['_input_123'] = input_data.reshape((1, 3, 248, 248)).astype(np.float32)
     pred_result = onnx_session.run([], input_feed=input_feed)
