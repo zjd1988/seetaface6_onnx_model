@@ -136,7 +136,7 @@ def predict_image(image, face_rect, points):
     clarity = clarity_estimate(face_image)
 
     passive_result = 0.0
-    if len(boxes) == 0:
+    if len(boxes):
         crop_face = cv2.resize(face_image, (256, 256))
         start_x = int((256 - 224) / 2)
         end_x   = start_x + 224
